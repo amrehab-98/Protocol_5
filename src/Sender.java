@@ -24,11 +24,13 @@ public class Sender {
     }
 
 
-    public static void send_data(int frame_nr, int frame_expected, ArrayList<Packet> buffer) {
+    public static FrameTimer send_data(int frame_nr, int frame_expected, ArrayList<Packet> buffer) {
         /*Construct and send a data frame. */
         Frame s = new Frame(Frame.frame_kind.data, frame_nr, (frame_expected + MAX_SEQ) % (MAX_SEQ + 1), buffer.get(frame_nr)); /* scratch variable */
-        /*to_physical_layer(&s); *//* transmit the frame *//*
-        start_timer(frame_nr); *//* start the timer running */
+        to_physical_layer(&s);  transmit the frame
+        FrameTimer sendTimer = new FrameTimer(frame_nr);
+        //start_timer(frame_nr);  start the timer running
+        return sendTimer;
     }
 
     public int inc(int k) {
@@ -44,7 +46,7 @@ public class Sender {
     }
 
     public void disable_network_layer() {
-
+        //TODO
     }
 
     public Packet from_network_layer(int next_frame_to_send) {
@@ -88,7 +90,7 @@ public class Sender {
         nBuffered = 0; /* initially no packets are buffered */
         event = event_type.network_layer_ready;
         while (true) {
-            //wait_for_event(&event); /* four possibilities: see event type above */
+            wait_for_event(&event); /* four possibilities: see event type above */
             switch (event) {
                 case network_layer_ready: /* the network layer has a packet to send */
                     /*Accept, save, and transmit a new frame. */
