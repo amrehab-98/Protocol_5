@@ -1,7 +1,6 @@
-import java.io.DataInputStream;
-import java.io.IOException;
-import java.io.ObjectInputStream;
+import java.io.*;
 import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
 
@@ -10,12 +9,16 @@ public class Sender {
     int timer;
     private static final int MAX_SEQ = 7;
     private static final int TIME_OUT_TIME = 4;
+    private boolean networkLayer = false;
+    private int timeoutFlag = 0;
+    private int[] timer_buffer = {0, 0, 0, 0, 0, 0, 0, 0};
+    private int[] buffer_flag = {0, 0, 0, 0, 0, 0, 0, 0};
 
     enum event_type {frame_arrival, cksum_err, timeout, network_layer_ready}
 
-    event_type event;
+    private event_type event;
 
-    public static boolean between(int a, int b, int c) {
+    public boolean between(int a, int b, int c) {
         /* Return true if a <= b < c circularly; false otherwise. */
         if (((a <= b) && (b < c)) || ((c < a) && (a <= b)) || ((b < c) && (c < a)))
             return (true);
@@ -23,14 +26,34 @@ public class Sender {
             return (false);
     }
 
+    static int i = 0;
 
-    public static FrameTimer send_data(int frame_nr, int frame_expected, ArrayList<Packet> buffer) {
+    public void start_timer(int seq_nr) {
+        timer_buffer[seq_nr] = i;
+        buffer_flag[seq_nr] = 1;
+        i++;
+        for (int j = 0; j < 8; j++) {
+            if (buffer_flag[j] == 1) {
+                if (i - timer_buffer[j] > TIME_OUT_TIME) {
+                    event = event_type.timeout;
+                }
+            }
+        }
+    }
+
+    public void to_physical_layer(Frame s) throws IOException {
+        Socket send = new Socket("127.0.0.1", 1234);
+        ObjectOutputStream dos = new ObjectOutputStream(send.getOutputStream());
+        dos.writeObject(s);
+    }
+
+    public void send_data(int frame_nr, int frame_expected, ArrayList<Packet> buffer) throws IOException {
         /*Construct and send a data frame. */
         Frame s = new Frame(Frame.frame_kind.data, frame_nr, (frame_expected + MAX_SEQ) % (MAX_SEQ + 1), buffer.get(frame_nr)); /* scratch variable */
-        to_physical_layer(&s);  transmit the frame
-        FrameTimer sendTimer = new FrameTimer(frame_nr);
-        //start_timer(frame_nr);  start the timer running
-        return sendTimer;
+        to_physical_layer(s);  /*transmit the frame*/
+        //FrameTimer sendTimer = new FrameTimer(frame_nr);
+        start_timer(frame_nr);  /*start the timer running*/
+        //return sendTimer;
     }
 
     public int inc(int k) {
@@ -42,11 +65,11 @@ public class Sender {
     }
 
     public void enable_network_layer() {
-        //TODO
+        networkLayer = true;
     }
 
     public void disable_network_layer() {
-        //TODO
+        networkLayer = false;
     }
 
     public Packet from_network_layer(int next_frame_to_send) {
@@ -64,7 +87,8 @@ public class Sender {
     }
 
     public Frame from_physical_layer() throws IOException, ClassNotFoundException {
-        Socket receive = new Socket("127.0.0.1", 1234);
+        ServerSocket server = new ServerSocket(1235);
+        Socket receive = server.accept();
         ObjectInputStream dis = new ObjectInputStream(receive.getInputStream());
         Frame r = (Frame) dis.readObject();
         return r;
@@ -73,6 +97,22 @@ public class Sender {
     public void to_network_layer(Packet info) {
         //TODO
     }
+
+    public event_type wait_for_event() {
+        if (networkLayer) {
+            event = event_type.network_layer_ready;
+        } else if (timeoutFlag == 1) {
+            event = event_type.timeout;
+        } else {
+            event = event_type.frame_arrival;
+        }
+        return event;
+    }
+
+    public void stop_timer(int ack_expected) {
+        //TODO
+    }
+
 
     public void protocol5() throws IOException, ClassNotFoundException {
         int next_frame_to_send; /* MAX SEQ > 1; used for outbound stream */
@@ -88,9 +128,8 @@ public class Sender {
         next_frame_to_send = 0; /* next frame going out */
         frame_expected = 0; /* number of frame expected inbound */
         nBuffered = 0; /* initially no packets are buffered */
-        event = event_type.network_layer_ready;
         while (true) {
-            wait_for_event(&event); /* four possibilities: see event type above */
+            event = wait_for_event(); /* four possibilities: see event type above */
             switch (event) {
                 case network_layer_ready: /* the network layer has a packet to send */
                     /*Accept, save, and transmit a new frame. */
@@ -98,19 +137,22 @@ public class Sender {
                     nBuffered = nBuffered + 1; /* expand the sender’s window */
                     send_data(next_frame_to_send, frame_expected, buffer);/* transmit the frame */
                     next_frame_to_send = inc(next_frame_to_send); /* advance sender’s upper window edge */
+                    disable_network_layer();
                     break;
                 case frame_arrival: /* a data or control frame has arrived */
                     r = from_physical_layer(); /* get incoming frame from physical layer */
                     if (r.getSeq() == frame_expected) {
                         /*Frames are accepted only in order. */
                         to_network_layer(r.getInfo()); /* pass packet to network layer */
+                        buffer_flag[frame_expected] = 0;
                         frame_expected = inc(frame_expected); /* advance lower edge of receiver’s window */
                     }
                     /*Ack n implies n −1, n −2, etc.Check for this. */
                     while (between(ack_expected, r.getAck(), next_frame_to_send)) {
                         /*Handle piggybacked ack. */
                         nBuffered = nBuffered - 1; /* one frame fewer buffered */
-                        //stop_timer (ack_expected); /* frame arrived intact; stop timer */
+                        timeoutFlag = 0;
+                        stop_timer(ack_expected); /* frame arrived intact; stop timer */
                         ack_expected = inc(ack_expected); /* contract sender’s window */
                     }
                     break;
