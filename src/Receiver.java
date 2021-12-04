@@ -8,6 +8,9 @@ public class Receiver {
     private static final int MAX_SEQ = 7;
     private boolean networkLayer = false;
 
+    public Receiver() throws IOException {
+    }
+
     enum event_type {frame_arrival, cksum_err, timeout, network_layer_ready}
 
     private event_type event;
@@ -22,14 +25,16 @@ public class Receiver {
 
 
     public void to_physical_layer(Frame s) throws IOException {
-        Socket send = new Socket("127.0.0.1", 1234);
+        Socket send = new Socket("127.0.0.1", 1235);
         ObjectOutputStream dos = new ObjectOutputStream(send.getOutputStream());
         dos.writeObject(s);
     }
 
-    public void send_data(int frame_nr, int frame_expected, ArrayList<Packet> buffer) throws IOException {
+    public void send_data(int frame_nr) throws IOException {
         /*Construct and send a data frame. */
-        Frame s = new Frame(Frame.frame_kind.ack, frame_nr, (frame_expected + MAX_SEQ) % (MAX_SEQ + 1), buffer.get(frame_nr)); /* scratch variable */
+        String data = "Ack."+frame_nr;
+        Packet p = new Packet(data.toCharArray());
+        Frame s = new Frame(Frame.frame_kind.ack, frame_nr, frame_nr, p); /* scratch variable */
         to_physical_layer(s);  /*transmit the frame*/
         //FrameTimer sendTimer = new FrameTimer(frame_nr);
         //return sendTimer;
@@ -65,11 +70,15 @@ public class Receiver {
         return data.get(next_frame_to_send);
     }
 
+    ServerSocket server = new ServerSocket(1234);
     public Frame from_physical_layer() throws IOException, ClassNotFoundException {
-        ServerSocket server = new ServerSocket(1235);
+        System.out.println("connecting to sender...");
         Socket receive = server.accept();
+        System.out.println("connected to sender");
         ObjectInputStream dis = new ObjectInputStream(receive.getInputStream());
         Frame r = (Frame) dis.readObject();
+        String s = new String(r.getInfo().getData());
+        System.out.println("received frame: "+r.getSeq()+" "+s);
         return r;
     }
 
@@ -100,7 +109,7 @@ public class Receiver {
         int nBuffered; /* number of output buffers currently in use */
         int i; /* used to index into the buffer array */
         event_type event;
-        enable_network_layer(); /* allow network layer ready events */
+        disable_network_layer(); /* allow network layer ready events */
         ack_expected = 0; /* next ack expected inbound */
         next_frame_to_send = 0; /* next frame going out */
         frame_expected = 0; /* number of frame expected inbound */
@@ -109,12 +118,10 @@ public class Receiver {
             event = wait_for_event(); /* four possibilities: see event type above */
             switch (event) {
                 case network_layer_ready: /* the network layer has a packet to send */
-                    /*Accept, save, and transmit a new frame. */
-                    buffer.set(next_frame_to_send, from_network_layer(next_frame_to_send)); /* fetch new packet */
-                    nBuffered = nBuffered + 1; /* expand the sender’s window */
-                    send_data(next_frame_to_send, frame_expected, buffer);/* transmit the frame */
-                    next_frame_to_send = inc(next_frame_to_send); /* advance sender’s upper window edge */
+                    send_data(next_frame_to_send);
+                    next_frame_to_send = inc(next_frame_to_send);
                     disable_network_layer();
+
                     break;
                 case frame_arrival: /* a data or control frame has arrived */
                     r = from_physical_layer(); /* get incoming frame from physical layer */
@@ -128,12 +135,21 @@ public class Receiver {
                 case cksum_err:
                     break; /* just ignore bad frames */
             }
-            if (nBuffered < MAX_SEQ) {
-                enable_network_layer();
-            } else {
-                disable_network_layer();
-            }
+//            if (nBuffered < MAX_SEQ) {
+//                enable_network_layer();
+//            } else {
+//                disable_network_layer();
+//            }
 
         }
+    }
+
+    public static void main(String[] args) throws IOException, ClassNotFoundException {
+
+        System.out.println("receiver created");
+        Receiver receiver = new Receiver();
+        receiver.protocol5();
+
+
     }
 }
