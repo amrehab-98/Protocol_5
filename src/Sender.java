@@ -40,6 +40,7 @@ public class Sender {
         for (int j = 0; j < 8; j++) {
             if (buffer_flag[j] == 1) {
                 if (i - timer_buffer[j] > TIME_OUT_TIME) {
+                    timeoutFlag = 1;
                     event = event_type.timeout;
                 }
             }
@@ -53,9 +54,14 @@ public class Sender {
     public void send_data(int frame_nr, int frame_expected, ArrayList<Packet> buffer, ObjectOutputStream dos) throws IOException {
         /*Construct and send a data frame. */
         Frame s = new Frame(Frame.frame_kind.data, frame_nr, (frame_expected + MAX_SEQ) % (MAX_SEQ + 1), buffer.get(frame_nr));
-        //        if(frame_nr == 2){
-        //            s.setSeq(5000);
-        //        }
+        //user input
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("Do you want to send a valid frame? <y/n>");
+        String input = scanner.nextLine();
+        if(input.equalsIgnoreCase("N") || input.equalsIgnoreCase("NO")){
+            s.setSeq(5000);
+        }
+
         /* scratch variable */
         to_physical_layer(s, dos);  /*transmit the frame*/
         //FrameTimer sendTimer = new FrameTimer(frame_nr);
@@ -95,8 +101,7 @@ public class Sender {
     }
 //    ServerSocket server = new ServerSocket(1235);
     public Frame from_physical_layer(ObjectInputStream dis) throws IOException, ClassNotFoundException {
-        Frame r = null;
-        r = (Frame) dis.readObject();
+        Frame r = (Frame) dis.readObject();
         return r;
     }
 
@@ -105,8 +110,7 @@ public class Sender {
     }
 
     public event_type wait_for_event() {
-        System.out.println("waiting for event...");
-        if (networkLayer) {
+        if (networkLayer && timeoutFlag !=1) {
             event = event_type.network_layer_ready;
         } else if (timeoutFlag == 1) {
             event = event_type.timeout;
@@ -118,6 +122,7 @@ public class Sender {
 
     public void stop_timer(int ack_expected) {
         System.out.println("timer "+ack_expected+" stopped");
+        buffer_flag[ack_expected] = 0;
         //TODO
     }
     public static ArrayList<Packet> createPrefilledList(int size, Packet item) {
@@ -166,13 +171,13 @@ public class Sender {
                     r = from_physical_layer(dis); /* get incoming frame from physical layer */
                     if (r.getSeq() == frame_expected) {
                         String s = new String(r.getInfo().getData());
-                        System.out.println("we successfully received a frame with info "+s);
+                        System.out.println(s);
                         /*Frames are accepted only in order. */
                         to_network_layer(r.getInfo()); /* pass packet to network layer */
                         buffer_flag[frame_expected] = 0;
                         frame_expected = inc(frame_expected); /* advance lower edge of receiver’s window */
-                        enable_network_layer();
                     }
+                    enable_network_layer();
                     /*Ack n implies n −1, n −2, etc.Check for this. */
                     while (between(ack_expected, r.getAck(), next_frame_to_send)) {
                         /*Handle piggybacked ack. */
@@ -186,24 +191,42 @@ public class Sender {
                     break; /* just ignore bad frames */
                 case timeout: /* trouble; retransmit all outstanding frames */
                     System.out.println("timeout");
-                    next_frame_to_send = ack_expected; /* start retransmitting here */
-                    for (i = 1; i <= nBuffered; i++) {
-                        send_data(next_frame_to_send, frame_expected, buffer, dos);/* resend frame */
-                        next_frame_to_send = inc(next_frame_to_send); /* prepare to send the next one */
+
+                    r = from_physical_layer(dis); /* get incoming frame from physical layer */
+                    while (r.getSeq() == ack_expected && ack_expected<=next_frame_to_send) {
+                        String s = new String(r.getInfo().getData());
+                        System.out.println(s);
+                        /*Frames are accepted only in order. */
+                        to_network_layer(r.getInfo()); /* pass packet to network layer */
+                        stop_timer(ack_expected);
+                        nBuffered--;
+                        ack_expected = inc(ack_expected); /* advance lower edge of receiver’s window */
+                        if(ack_expected == next_frame_to_send){
+
+                        }
+                        else{
+                            r = from_physical_layer(dis);
+                        }
                     }
+                    System.out.println("ack expected = "+ ack_expected);
+                    next_frame_to_send = ack_expected; /* start retransmitting here */
+                    for (i = ack_expected; i < nBuffered; i++) {
+                    send_data(next_frame_to_send, frame_expected, buffer, dos);/* resend frame */
+                    next_frame_to_send = inc(next_frame_to_send); /* prepare to send the next one */
+                    }
+                    enable_network_layer();
+                    timeoutFlag = 0;
             }
-//            if (nBuffered < MAX_SEQ) {
-//                enable_network_layer();
-//            } else {
-//                disable_network_layer();
-//            }
+            if (nBuffered < MAX_SEQ) {
+                enable_network_layer();
+            } else {
+                disable_network_layer();
+            }
 
         }
     }
 
     public static void main(String[] args) throws IOException, ClassNotFoundException {
-
-        System.out.println("sender created");
         Sender sender = new Sender();
         sender.protocol5();
 

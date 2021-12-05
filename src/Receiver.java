@@ -35,8 +35,7 @@ public class Receiver {
         Packet p = new Packet(data.toCharArray());
         Frame s = new Frame(Frame.frame_kind.ack, frame_nr, frame_nr, p); /* scratch variable */
         to_physical_layer(s, dos);  /*transmit the frame*/
-        //FrameTimer sendTimer = new FrameTimer(frame_nr);
-        //return sendTimer;
+
     }
 
     public int inc(int k) {
@@ -72,7 +71,6 @@ public class Receiver {
     public Frame from_physical_layer(ObjectInputStream dis) throws IOException, ClassNotFoundException {
         Frame r = (Frame) dis.readObject();
         String s = new String(r.getInfo().getData());
-        System.out.println("received frame: "+r.getSeq()+" "+s);
         return r;
     }
 
@@ -114,8 +112,10 @@ public class Receiver {
         ObjectOutputStream dos = new ObjectOutputStream(receive.getOutputStream());
         ObjectInputStream dis = new ObjectInputStream(receive.getInputStream());
 
+
         while (true) {
             event = wait_for_event(); /* four possibilities: see event type above */
+            boolean flag = false;
             switch (event) {
                 case network_layer_ready: /* the network layer has a packet to send */
                     send_data(next_frame_to_send, dos);
@@ -126,10 +126,16 @@ public class Receiver {
                 case frame_arrival: /* a data or control frame has arrived */
                     r = from_physical_layer(dis); /* get incoming frame from physical layer */
                     if (r.getSeq() == frame_expected) {
+                        System.out.println("correct frame: "+r.getSeq());
                         enable_network_layer();
                         /*Frames are accepted only in order. */
                         to_network_layer(r.getInfo()); /* pass packet to network layer */
                         frame_expected = inc(frame_expected); /* advance lower edge of receiver’s window */
+                    }
+                    else {
+                        System.out.println("incorrect frame: "+r.getSeq());
+                        send_data(5000, dos);
+
                     }
                     break;
                 case cksum_err:
@@ -146,7 +152,6 @@ public class Receiver {
 
     public static void main(String[] args) throws IOException, ClassNotFoundException {
 
-        System.out.println("receiver created");
         Receiver receiver = new Receiver();
         receiver.protocol5();
 
