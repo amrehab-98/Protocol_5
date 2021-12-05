@@ -3,6 +3,7 @@ import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.ArrayList;
+import java.util.Scanner;
 
 public class Receiver {
     private static final int MAX_SEQ = 7;
@@ -24,18 +25,16 @@ public class Receiver {
     }
 
 
-    public void to_physical_layer(Frame s) throws IOException {
-        Socket send = new Socket("127.0.0.1", 1235);
-        ObjectOutputStream dos = new ObjectOutputStream(send.getOutputStream());
+    public void to_physical_layer(Frame s, ObjectOutputStream dos) throws IOException {
         dos.writeObject(s);
     }
 
-    public void send_data(int frame_nr) throws IOException {
+    public void send_data(int frame_nr, ObjectOutputStream dos) throws IOException {
         /*Construct and send a data frame. */
         String data = "Ack."+frame_nr;
         Packet p = new Packet(data.toCharArray());
         Frame s = new Frame(Frame.frame_kind.ack, frame_nr, frame_nr, p); /* scratch variable */
-        to_physical_layer(s);  /*transmit the frame*/
+        to_physical_layer(s, dos);  /*transmit the frame*/
         //FrameTimer sendTimer = new FrameTimer(frame_nr);
         //return sendTimer;
     }
@@ -70,12 +69,7 @@ public class Receiver {
         return data.get(next_frame_to_send);
     }
 
-    ServerSocket server = new ServerSocket(1234);
-    public Frame from_physical_layer() throws IOException, ClassNotFoundException {
-        System.out.println("connecting to sender...");
-        Socket receive = server.accept();
-        System.out.println("connected to sender");
-        ObjectInputStream dis = new ObjectInputStream(receive.getInputStream());
+    public Frame from_physical_layer(ObjectInputStream dis) throws IOException, ClassNotFoundException {
         Frame r = (Frame) dis.readObject();
         String s = new String(r.getInfo().getData());
         System.out.println("received frame: "+r.getSeq()+" "+s);
@@ -114,17 +108,23 @@ public class Receiver {
         next_frame_to_send = 0; /* next frame going out */
         frame_expected = 0; /* number of frame expected inbound */
         nBuffered = 0; /* initially no packets are buffered */
+        ServerSocket server = new ServerSocket(1234);
+        Socket receive = server.accept();
+        System.out.println("connected to sender");
+        ObjectOutputStream dos = new ObjectOutputStream(receive.getOutputStream());
+        ObjectInputStream dis = new ObjectInputStream(receive.getInputStream());
+
         while (true) {
             event = wait_for_event(); /* four possibilities: see event type above */
             switch (event) {
                 case network_layer_ready: /* the network layer has a packet to send */
-                    send_data(next_frame_to_send);
+                    send_data(next_frame_to_send, dos);
                     next_frame_to_send = inc(next_frame_to_send);
                     disable_network_layer();
 
                     break;
                 case frame_arrival: /* a data or control frame has arrived */
-                    r = from_physical_layer(); /* get incoming frame from physical layer */
+                    r = from_physical_layer(dis); /* get incoming frame from physical layer */
                     if (r.getSeq() == frame_expected) {
                         enable_network_layer();
                         /*Frames are accepted only in order. */
