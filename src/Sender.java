@@ -12,7 +12,7 @@ public class Sender {
     private int[] timer_buffer = {0, 0, 0, 0, 0, 0, 0, 0};
     private int[] buffer_flag = {0, 0, 0, 0, 0, 0, 0, 0};
 
-    public Sender() throws IOException {
+    public Sender() {
     }
 
     enum event_type {frame_arrival, cksum_err, timeout, network_layer_ready}
