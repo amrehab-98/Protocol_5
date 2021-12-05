@@ -70,15 +70,11 @@ public class Sender {
     }
 
     public int inc(int k) {
-        if (k < MAX_SEQ)
-            k = k + 1;
-        else
-            k = 0;
-        return k;
+        return (k+1)%MAX_SEQ;
     }
 
     public void enable_network_layer() {
-        networkLayer = true;
+        networkLayer = !networkLayer;
     }
 
     public void disable_network_layer() {
@@ -158,33 +154,22 @@ public class Sender {
             switch (event) {
                 case network_layer_ready: /* the network layer has a packet to send */
                     /*Accept, save, and transmit a new frame. */
-                    System.out.println("network layer ready");
                     buffer.set(next_frame_to_send, from_network_layer(next_frame_to_send)); /* fetch new packet */
                     nBuffered = nBuffered + 1; /* expand the sender’s window */
                     send_data(next_frame_to_send, frame_expected, buffer, dos);/* transmit the frame */
                     System.out.println("next frame to send: "+ next_frame_to_send);
                     next_frame_to_send = inc(next_frame_to_send); /* advance sender’s upper window edge */
-                    disable_network_layer();
                     break;
                 case frame_arrival: /* a data or control frame has arrived */
                     System.out.println("frame arrival");
                     r = from_physical_layer(dis); /* get incoming frame from physical layer */
-                    if (r.getSeq() == frame_expected) {
+                    if (r.getAck() == ack_expected) {
                         String s = new String(r.getInfo().getData());
                         System.out.println(s);
                         /*Frames are accepted only in order. */
                         to_network_layer(r.getInfo()); /* pass packet to network layer */
-                        buffer_flag[frame_expected] = 0;
-                        frame_expected = inc(frame_expected); /* advance lower edge of receiver’s window */
-                    }
-                    enable_network_layer();
-                    /*Ack n implies n −1, n −2, etc.Check for this. */
-                    while (between(ack_expected, r.getAck(), next_frame_to_send)) {
-                        /*Handle piggybacked ack. */
-                        nBuffered = nBuffered - 1; /* one frame fewer buffered */
-                        timeoutFlag = 0;
-                        stop_timer(ack_expected); /* frame arrived intact; stop timer */
-                        ack_expected = inc(ack_expected); /* contract sender’s window */
+                        stop_timer(ack_expected);
+                        ack_expected = inc(ack_expected); /* advance lower edge of receiver’s window */
                     }
                     break;
                 case cksum_err:
@@ -192,23 +177,23 @@ public class Sender {
                 case timeout: /* trouble; retransmit all outstanding frames */
                     System.out.println("timeout");
 
-                    r = from_physical_layer(dis); /* get incoming frame from physical layer */
-                    while (r.getSeq() == ack_expected && ack_expected<=next_frame_to_send) {
-                        String s = new String(r.getInfo().getData());
-                        System.out.println(s);
-                        /*Frames are accepted only in order. */
-                        to_network_layer(r.getInfo()); /* pass packet to network layer */
-                        stop_timer(ack_expected);
-                        nBuffered--;
-                        ack_expected = inc(ack_expected); /* advance lower edge of receiver’s window */
-                        if(ack_expected == next_frame_to_send){
-
-                        }
-                        else{
-                            r = from_physical_layer(dis);
-                        }
-                    }
-                    System.out.println("ack expected = "+ ack_expected);
+//                    r = from_physical_layer(dis); /* get incoming frame from physical layer */
+//                    while (r.getSeq() == ack_expected && ack_expected<=next_frame_to_send) {
+//                        String s = new String(r.getInfo().getData());
+//                        System.out.println(s);
+//                        /*Frames are accepted only in order. */
+//                        to_network_layer(r.getInfo()); /* pass packet to network layer */
+//                        stop_timer(ack_expected);
+//                        nBuffered--;
+//                        ack_expected = inc(ack_expected); /* advance lower edge of receiver’s window */
+//                        if(ack_expected == next_frame_to_send){
+//
+//                        }
+//                        else{
+//                            r = from_physical_layer(dis);
+//                        }
+//                    }
+//                    System.out.println("ack expected = "+ ack_expected);
                     next_frame_to_send = ack_expected; /* start retransmitting here */
                     for (i = ack_expected; i < nBuffered; i++) {
                     send_data(next_frame_to_send, frame_expected, buffer, dos);/* resend frame */
@@ -217,11 +202,11 @@ public class Sender {
                     enable_network_layer();
                     timeoutFlag = 0;
             }
-            if (nBuffered < MAX_SEQ) {
+//            if (nBuffered < MAX_SEQ) {
                 enable_network_layer();
-            } else {
-                disable_network_layer();
-            }
+//            } else {
+//                disable_network_layer();
+//            }
 
         }
     }

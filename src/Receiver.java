@@ -39,15 +39,11 @@ public class Receiver {
     }
 
     public int inc(int k) {
-        if (k < MAX_SEQ)
-            k = k + 1;
-        else
-            k = 0;
-        return k;
+        return (k+1)%MAX_SEQ;
     }
 
     public void enable_network_layer() {
-        networkLayer = true;
+        networkLayer = !networkLayer;
     }
 
     public void disable_network_layer() {
@@ -115,13 +111,11 @@ public class Receiver {
 
         while (true) {
             event = wait_for_event(); /* four possibilities: see event type above */
-            boolean flag = false;
             switch (event) {
                 case network_layer_ready: /* the network layer has a packet to send */
                     send_data(next_frame_to_send, dos);
                     next_frame_to_send = inc(next_frame_to_send);
                     disable_network_layer();
-
                     break;
                 case frame_arrival: /* a data or control frame has arrived */
                     r = from_physical_layer(dis); /* get incoming frame from physical layer */
